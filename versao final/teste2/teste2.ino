@@ -30,15 +30,18 @@
   
   char msg[MESSAGE_LENGTH];
   int messageIndex = 0;
+  char gprsBuffer[64];
   
   char msgEnviar[300];
   char numeroDiscado[16];
   char numeroRecebeu[16];
   
   char data[24];
+  Adafruit_GFX_Button botoesSMS[5];
   
   Adafruit_GFX_Button btnDiscar;
   Adafruit_GFX_Button btnSMSs;
+  
   SoftwareSerial mySerial(PIN_TX,PIN_RX);
   DFRobot_SIM808 sim808(&mySerial);//Conecta RX,TX,PWR
   TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
@@ -87,14 +90,114 @@
     tft.begin(ID);
     tft.setRotation(0);
     telaInicial();
+  }
+
+  void escreveSMS(int index)
+  {
+    tft.fillRect(1, 30, 240, 210, BRANCO);
+    tft.setCursor(5,35);
+    sim808.readSMS(index, msg, MESSAGE_LENGTH, numeroRecebeu, data);
+    char dataNormalizada[8];
+    for(int i =0; i<8; i++)
+    {
+      dataNormalizada[i] = data[i];
+    }
     
+    tft.print(dataNormalizada);
+    tft.print("\n");
+    tft.print(numeroRecebeu);
+    tft.print("\n");
+    tft.print(msg);
   }
 
   void telaSMS()
   {
-    
+    tft.fillScreen(PRETO);
+    botoesSMS[0].initButton(&tft, 180, 300, 70, 30, BRANCO, CIANO, PRETO, ">", 2);
+    botoesSMS[1].initButton(&tft, 60, 300, 70, 30, BRANCO, CIANO, PRETO, "<", 2);
+    botoesSMS[2].initButton(&tft, 10, 10, 20,20, BRANCO, VERMELHO, PRETO, "<", 2);
+    botoesSMS[3].initButton(&tft, 120, 300,40,40,BRANCO, VERMELHO, PRETO, "X", 2);
+    botoesSMS[4].initButton(&tft, 120, 260, 60, 40, BRANCO,CIANO,PRETO, "Resp", 2);
+     for (int i=0; i<5; i++){
+      botoesSMS[i].drawButton(false);
+    }
+
+    tft.fillRect(1, 30, 240, 210, BRANCO);
+    tft.setCursor(5,35); 
+    tft.setTextColor(PRETO); 
+    tft.setTextSize(2); 
+    delay(5000);
+
+    escreveSMS(1);
   }
-  
+
+  void checaTelaSMS(bool toque, int *indiceAtual)
+  {
+    int qtdSMS = 20;
+    for (int i=0; i<5; i++){
+      botoesSMS[i].press(toque && botoesSMS[i].contains(posX, posY));
+    }
+    if(botoesSMS[2].justPressed())
+    {
+        botoesSMS[2].drawButton(true);
+        esperaSoltar();
+        botoesSMS[2].drawButton();
+      volta = true;
+    }
+    if(botoesSMS[0].justPressed())
+    {
+      botoesSMS[0].drawButton(true);
+      esperaSoltar();
+      botoesSMS[0].drawButton();
+      if(*indiceAtual < qtdSMS)
+      {
+        *indiceAtual = *indiceAtual + 1;
+        escreveSMS(*indiceAtual);
+      }
+    }
+     if(botoesSMS[1].justPressed())
+    {
+      botoesSMS[1].drawButton(true);
+        esperaSoltar();
+        botoesSMS[1].drawButton();
+      if(*indiceAtual > 0)
+      {
+        *indiceAtual = *indiceAtual - 1;
+        escreveSMS(*indiceAtual);
+      }
+    }
+     if(botoesSMS[3].justPressed())
+    {
+      botoesSMS[3].drawButton(true);
+        esperaSoltar();
+        botoesSMS[3].drawButton();
+      sim808.deleteSMS(*indiceAtual);
+     
+      if(qtdSMS == 1)
+      {
+        volta = true;
+      } else
+       if(*indiceAtual == qtdSMS)
+      {
+        escreveSMS(*indiceAtual);
+        *indiceAtual = *indiceAtual - 1;
+      }
+      
+    }
+    if(botoesSMS[4].justPressed())
+    {
+        botoesSMS[4].drawButton(true);
+        esperaSoltar();
+        botoesSMS[4].drawButton();
+        respondSMS(numeroRecebeu);
+    }
+  }
+ /* void telaLigacao(char *num)
+  {
+    btnDiscar.initButton(&tft, 120, 100, 100, 80, BRANCO, CIANO, PRETO, "Discar", 2);
+    btnSMSs.initButton(&tft,120,200, 100, 80,BRANCO, CIANO, PRETO, "Ver SMSs",2);
+  } */
+  }
   void telaInicial()
   {
     tft.fillScreen(PRETO);
@@ -115,11 +218,20 @@
         btnSMSs.drawButton();
 
         
-        messageIndex = sim808.isSMSunread();
-     if (messageIndex > 0)//se tem ao menos um SMS para ler
-     { 
-       telaSMSs();
-     }
+    
+       telaSMS();
+       int i = 1;
+       int *indice = &i;
+       while(!volta)
+       {
+        bool toque = obterToque();
+        checaTelaSMS(toque, indice);
+        aceitaLigacao();
+       }
+       volta = false;
+       telaInicial();
+       
+     
    }
     if(btnDiscar.justPressed())
     {
@@ -131,44 +243,15 @@
         {
           bool toque = obterToque();
           tecladoPressionado(toque);
+          aceitaLigacao();
         }
         volta = false;
         telaInicial();
     }
   }
 
-  String criaSMS(char *numero, char *data, char *mensagem)
-  {
-  int tamanhoChar = sizeof(char);
-  String SMS = "Numero: \n     ";
-  for(int i = 0; i< sizeof(numero)/ tamanhoChar; i++)
-  {
-     SMS += numero[i];
-  }
-  SMS += "\n     Data e hora: \n     ";
-   for(int i = 0; i< sizeof(data)/ tamanhoChar; i++)
-  {
-     SMS += data[i];
-  }
-  SMS += "\n     mensagem: \n     ";
-   for(int i = 0; i< sizeof(mensagem)/ tamanhoChar; i++)
-  {
-     SMS += mensagem[i];
-  }
-  return SMS;  
-  }
-  
-  void telaSMSs()
-  {
-    String vetorSMSs[messageIndex];
-    for(int i = 1; i <= messageIndex; i++)
-    {
-     sim808.readSMS(i, msg, MESSAGE_LENGTH, numeroRecebeu, data);
-     vetorSMSs[i-1] = criaSMS(numeroRecebeu, data, msg);
-     Serial.print(vetorSMSs[i-1]);
-    }
    
-  }
+  
   void telaDiscagem()
   {
     numero = "";
@@ -284,18 +367,27 @@
       visor();
       }
   }
+
+ void aceitaLigacao()
+ {
+  if(sim808.readable()){
+      sim808_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
+
+   //************** Detect the current state of the telephone or SMS ************************
+      if(NULL != strstr(gprsBuffer,"RING")) {
+          sim808.answer();
+      }
+     sim808_clean_buffer(gprsBuffer,32);  
+  }
+ }
  
  void ligar(String num)
  {
-   /* num.toCharArray(numeroDiscado, 14);
-    char danisse[14];
+    String comp = "+55" + num + "0";
+    comp.toCharArray(numeroDiscado, 15);
     sim808.callUp(numeroDiscado);
     Serial.print(numeroDiscado);
     Serial.print(F("ligando"));
-    sim808.callUp("+5519989480000");
-    while(sim808.isCallActive(danisse))
-    {
-    } */
  }
 
  void sendSMS(String num)
@@ -318,9 +410,32 @@
   
   sim808.sendSMS(numeroDiscado, msgEnviar); 
  }
+
+ void respondSMS(char *num)
+ {
+  char msgEnviar[300];
+  String msgLida;
+  Serial.println(F("Mandando SMS."));
+  Serial.println(F("Digite a mensagem a ser enviada."));
+  while (Serial.available()) {
+    delay(3);  //delay to allow buffer to fill
+    if (Serial.available() >0) {
+      char c = Serial.read();  //gets one byte from serial buffer
+      msgLida += c; //makes the string readString
+    }
+  }
+  msgLida.toCharArray(msgEnviar, 300);
+  Serial.println(msgEnviar);
+  Serial.println(num);
+  
+  sim808.sendSMS(num, msgEnviar); 
+ }
+
+
  
 
 void loop() {
   bool toque = obterToque();
   checaTelaInicial(toque);
+  aceitaLigacao();
 }
